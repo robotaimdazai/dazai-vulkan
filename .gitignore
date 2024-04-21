@@ -30,3 +30,8 @@
 *.exe
 *.out
 *.app
+
+#directories
+.vs
+.idea
+out
