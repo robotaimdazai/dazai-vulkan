@@ -1,9 +1,6 @@
-#pragma once 
-#include <GLFW/glfw3.h>
-#include <vulkan/vulkan.h >
-#include <stdexcept>
-
-
+#pragma once
+#include "glfw_window.h"
+#include "renderer.h"
 namespace dazai_engine
 {
 	class engine
@@ -11,12 +8,9 @@ namespace dazai_engine
 	public:
 		engine();
 		~engine();
+		auto update() -> void;
 	private:
-		auto build_glfw_window() -> void;
-		auto create_vulkan_instance() -> void;
-		int m_width{ 640 };
-		int m_height{ 480 };
-		GLFWwindow* m_window{ nullptr };
-		VkInstance m_vk_instance;
+		glfw_window* m_glfw_window;
+		renderer* m_renderer;
 	};
 }
