@@ -8,7 +8,6 @@
 #include <vulkan/vulkan_win32.h>
 #include <vector>
 
-
 dazai_engine::renderer::renderer(GLFWwindow* window):
 	m_window(window)
 {
@@ -17,7 +16,9 @@ dazai_engine::renderer::renderer(GLFWwindow* window):
 
 dazai_engine::renderer::~renderer()
 {
+	vkDestroySurfaceKHR(m_context.instance, m_context.surface, nullptr);
 	vkDestroyInstance(m_context.instance, nullptr);
+	vkDestroyDevice(m_context.device, nullptr);
 }
 
 auto dazai_engine::renderer::init() -> void
@@ -30,32 +31,61 @@ auto dazai_engine::renderer::init() -> void
 	app_info.pEngineName = "Dazai Engine";
 	app_info.apiVersion = VK_API_VERSION_1_0;
 	//global extensions and validation layer
-	VkInstanceCreateInfo create_info{};
-	create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-	create_info.pApplicationInfo = &app_info;
+	const char* layers[]
+	{
+		"VK_LAYER_KHRONOS_validation"
+	};
+	VkInstanceCreateInfo instance_info{};
+	instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+	instance_info.pApplicationInfo = &app_info;
 	//glfw extensions
 	uint32_t glfw_extension_count = 0;
 	const char** glfw_extensions;
 	glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
-	create_info.enabledExtensionCount = glfw_extension_count;
-	create_info.ppEnabledExtensionNames = glfw_extensions;
-	//validation layers
-	create_info.enabledLayerCount = 0;
-	VkResult result = vkCreateInstance(&create_info, nullptr, &m_context.instance);
-	if (result == VK_SUCCESS)
-		LOG_INFO("VK instance created");
+	std::vector<const char*> extensions(glfw_extensions,
+		glfw_extensions + glfw_extension_count);
+	//add other extensions
+	extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+	instance_info.ppEnabledExtensionNames = extensions.data();
+	instance_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+	instance_info.ppEnabledLayerNames = layers;
+	instance_info.enabledLayerCount = ARRAYSIZE(layers);
+	//CREATE INSTANCE
+	VKCHECK(vkCreateInstance(&instance_info, nullptr, &m_context.instance));
+	//ENABLE DEBUG MESSENGER
+	//STEPS:
+	//GET FUNCTION POINTER FROM DLL
+	//CAST THE FUNCTION APPROPRIATELY
+	//IF POINTER IS VALID CREATE MESSENGER
+	auto debug_messenger_function_ptr =
+		(PFN_vkCreateDebugUtilsMessengerEXT)
+		vkGetInstanceProcAddr(m_context.instance, "vkCreateDebugUtilsMessengerEXT");
+	if (debug_messenger_function_ptr)
+	{
+		VkDebugUtilsMessengerCreateInfoEXT debug_info{};
+		debug_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+		//turn on bits for message type
+		debug_info.messageSeverity =
+			VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
+			VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT;
+		debug_info.messageType =
+			VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+			VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
+		//callback functiion
+		debug_info.pfnUserCallback = VK_DEBUG_CALLBACK;
+		debug_messenger_function_ptr(m_context.instance, &debug_info,
+			0, &m_context.debug_messenger);
+	}
 	else
-		LOG_ERROR("VK instance failed");
+	{
+		LOG_ERROR("DEBUG MESSENGER FUNCTION PTR NOT FOUND");
+	}
 	//create vulkan surface
 	VkWin32SurfaceCreateInfoKHR surface_info{};
 	surface_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
 	surface_info.hwnd = glfwGetWin32Window(m_window);
 	surface_info.hinstance = GetModuleHandle(nullptr);
-	result = vkCreateWin32SurfaceKHR(m_context.instance,&surface_info,0,&m_context.surface);
-	if (result == VK_SUCCESS)
-		LOG_INFO("VK Surface created");
-	else
-		LOG_ERROR("VK Surface failed");
+	VKCHECK(vkCreateWin32SurfaceKHR(m_context.instance, &surface_info, 0, &m_context.surface));
 	//select physical device
 	uint32_t device_count = 0;
 	vkEnumeratePhysicalDevices(m_context.instance, &device_count, nullptr);
@@ -98,18 +128,31 @@ auto dazai_engine::renderer::init() -> void
 	queue_create_info.pQueuePriorities = &queue_priority;
 	//configure physical device feature we will be using;
 	VkPhysicalDeviceFeatures device_features{}; // nothing for now
-	//now createlogical device
+	//create extensions for logical device
+	const char* sc_extensions[] = 
+	{
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME
+	};
+	//now create logical device
 	VkDeviceCreateInfo device_create_info{};
 	device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 	device_create_info.pQueueCreateInfos = &queue_create_info;
 	device_create_info.queueCreateInfoCount = 1;
 	device_create_info.pEnabledFeatures = &device_features;
-	device_create_info.enabledExtensionCount = 0;
-	result = vkCreateDevice(m_context.physical_device,&device_create_info,0,&m_context.device);
-	if (result == VK_SUCCESS)
-		LOG_INFO("VK logical device created");
-	else
-		LOG_ERROR("VK logical device failed");
+	device_create_info.ppEnabledExtensionNames = sc_extensions;
+	device_create_info.enabledExtensionCount = ARRAYSIZE(sc_extensions);
+	VKCHECK(vkCreateDevice(m_context.physical_device,
+		&device_create_info,0,&m_context.device));
+	//Retrieving queue handles
+	vkGetDeviceQueue(m_context.device,m_context.graphic_family_queue_index.value(),
+		0,&m_context.graphics_queue);
+	//create swapchain
+	VkSwapchainCreateInfoKHR sc_info{};
+	sc_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+	sc_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	sc_info.surface = m_context.surface;
+	VKCHECK(vkCreateSwapchainKHR(m_context.device, &sc_info, 0,
+		&m_context.swap_chain));
 
 }
 
@@ -117,4 +160,6 @@ auto dazai_engine::renderer::render() -> void
 {
 
 }
+
+
 

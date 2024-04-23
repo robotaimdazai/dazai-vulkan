@@ -11,6 +11,9 @@ namespace dazai_engine
 		VkSurfaceKHR surface;
 		VkPhysicalDevice physical_device;
 		VkDevice device;
+		VkQueue graphics_queue;
+		VkSwapchainKHR swap_chain;
+		VkDebugUtilsMessengerEXT debug_messenger;
 		//queue family indices
 		std::optional<uint32_t> graphic_family_queue_index;
 	};

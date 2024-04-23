@@ -1,10 +1,12 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <vulkan/vulkan.h>
 
 namespace dazai_engine
 {
-    enum class LogLevel { info, warning, error };
+
+    enum class LogLevel { info, warning, error, validation };
     class logger
     {
     public:
@@ -25,6 +27,9 @@ namespace dazai_engine
             case LogLevel::error:
                 levelStr = "ERROR";
                 break;
+            case LogLevel::validation:
+                levelStr = "VK_VALIDATION";
+                break;
             }
 
             logHelper(std::forward<Args>(args)...);
@@ -32,6 +37,7 @@ namespace dazai_engine
             std::cout << "[" << levelStr << "] " << file << ":" << line << std::endl;
 
         }
+
 
     private:
         std::ofstream logFile;
@@ -59,5 +65,21 @@ extern dazai_engine::logger g_logger;
 #define LOG_INFO(...)    g_logger.log(dazai_engine::LogLevel::info,    __FILE__, __LINE__, __VA_ARGS__)
 #define LOG_WARNING(...) g_logger.log(dazai_engine::LogLevel::warning, __FILE__, __LINE__, __VA_ARGS__)
 #define LOG_ERROR(...)   g_logger.log(dazai_engine::LogLevel::error,   __FILE__, __LINE__, __VA_ARGS__)
+#define LOG_VK_VALIDATION(...)   g_logger.log(dazai_engine::LogLevel::validation,"",0,__VA_ARGS__)
+
+#define VKCHECK(result)\
+if(result!=0)\
+{\
+    LOG_ERROR("VULKAN CALL UNSUCESSFULL: ", result);\
+}\
+
+auto static VK_DEBUG_CALLBACK(VkDebugUtilsMessageSeverityFlagBitsEXT msgSeverity,
+    VkDebugUtilsMessageTypeFlagsEXT msgFlags,
+    const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+    void* pUserData) -> VKAPI_ATTR VkBool32 VKAPI_CALL
+{
+    LOG_VK_VALIDATION(pCallbackData->pMessage);
+    return false;
+}
 
 
