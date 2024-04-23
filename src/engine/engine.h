@@ -10,7 +10,7 @@ namespace dazai_engine
 		~engine();
 		auto update() -> void;
 	private:
-		glfw_window* m_glfw_window;
 		renderer* m_renderer;
+		glfw_window* m_glfw_window;
 	};
 }

@@ -11,8 +11,7 @@ dazai_engine::glfw_window::glfw_window()
 	//resizing breaks the swapchain, we'll disable it for now
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-	//GLFWwindow* glfwCreateWindow (int width, int height, const char *title, GLFWmonitor *monitor, GLFWwindow *share)
-	if (m_window = glfwCreateWindow(m_width, m_height, "DazaiEngine",
+	if (window = glfwCreateWindow(m_width, m_height, "DazaiEngine",
 		nullptr, nullptr))
 	{
 		LOG_INFO("glfw window created");
@@ -25,11 +24,11 @@ dazai_engine::glfw_window::glfw_window()
 
 dazai_engine::glfw_window::~glfw_window()
 {
-	glfwDestroyWindow(m_window);
+	glfwDestroyWindow(window);
 	glfwTerminate();
 }
 
 auto dazai_engine::glfw_window::is_running() -> bool
 {
-	return !glfwWindowShouldClose(m_window);
+	return !glfwWindowShouldClose(window);
 }

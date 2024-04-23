@@ -3,7 +3,7 @@
 dazai_engine::engine::engine()
 {
 	m_glfw_window = new glfw_window();
-	m_renderer = new renderer();
+	m_renderer = new renderer(m_glfw_window->window);
 }
 
 dazai_engine::engine::~engine()

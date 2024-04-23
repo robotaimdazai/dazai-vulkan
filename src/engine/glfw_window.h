@@ -11,9 +11,10 @@ namespace dazai_engine
 		glfw_window();
 		~glfw_window();
 		auto is_running() -> bool;
+		GLFWwindow* window{ nullptr };
 	private:
 		int m_width{ 640 };
 		int m_height{ 480 };
-		GLFWwindow* m_window{ nullptr };
+		
 	};
 }
