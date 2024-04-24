@@ -34,7 +34,7 @@ namespace dazai_engine
 
             logHelper(std::forward<Args>(args)...);
             logFile << "[" << levelStr << "] " << file << ":" << line << std::endl;
-            std::cout << "[" << levelStr << "] " << file << ":" << line << std::endl;
+            std::cout << "[" << levelStr << "] " << file << ":" << line << std::endl << std::endl;
 
         }
 

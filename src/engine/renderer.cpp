@@ -146,19 +146,122 @@ auto dazai_engine::renderer::init() -> void
 	//Retrieving queue handles
 	vkGetDeviceQueue(m_context.device,m_context.graphic_family_queue_index.value(),
 		0,&m_context.graphics_queue);
-	//create swapchain
+	//CREATE SWAP CHAIN
+	//get surface capabilities for pre swapchain config data
+	VkSurfaceCapabilitiesKHR surface_capabilities{};
+	VKCHECK( vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_context.physical_device,
+		m_context.surface, &surface_capabilities));
+	uint32_t surface_img_count = surface_capabilities.minImageCount + 1;
+	surface_img_count =
+		surface_img_count > surface_capabilities.maxImageCount ?
+		surface_img_count - 1 : surface_img_count;
+	//get surface format
+	uint32_t format_count = 0;
+	VKCHECK( vkGetPhysicalDeviceSurfaceFormatsKHR(m_context.physical_device, m_context.surface,
+		&format_count, 0));
+	std::vector<VkSurfaceFormatKHR> formats(format_count);
+	vkGetPhysicalDeviceSurfaceFormatsKHR(m_context.physical_device, m_context.surface,
+		&format_count, formats.data());
+	for (auto format: formats)
+	{
+		if (format.format == VK_FORMAT_B8G8R8A8_SRGB)
+		{
+			m_context.surface_format = format;
+			break;
+		}		
+	}
 	VkSwapchainCreateInfoKHR sc_info{};
 	sc_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
 	sc_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 	sc_info.surface = m_context.surface;
+	sc_info.preTransform = surface_capabilities.currentTransform;
+	sc_info.imageExtent = surface_capabilities.currentExtent;
+	sc_info.minImageCount = surface_img_count;
+	sc_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+	sc_info.imageArrayLayers = 1;
+	sc_info.imageFormat = m_context.surface_format.format;
 	VKCHECK(vkCreateSwapchainKHR(m_context.device, &sc_info, 0,
 		&m_context.swap_chain));
-
+	//GET SWAP CHAIN IMAGES
+	VKCHECK( vkGetSwapchainImagesKHR(m_context.device, m_context.swap_chain, 
+		&m_context.sc_image_count, 0));
+	//resize the images vector
+	m_context.sc_images.resize(m_context.sc_image_count);
+	//now assign swap chain images
+	VKCHECK(vkGetSwapchainImagesKHR(m_context.device, m_context.swap_chain,
+		&m_context.sc_image_count, m_context.sc_images.data()));
+	//COMMAND POOL
+	VkCommandPoolCreateInfo pool_info{};
+	pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	pool_info.queueFamilyIndex = m_context.graphic_family_queue_index.value();
+	vkCreateCommandPool(m_context.device,&pool_info,0,
+		&m_context.command_pool);
+	//SEMAPHORES
+	VkSemaphoreCreateInfo semaphore_info{};
+	semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	VKCHECK(vkCreateSemaphore(m_context.device,&semaphore_info,0,
+		&m_context.acquire_semaphore));
+	VKCHECK( vkCreateSemaphore(m_context.device,&semaphore_info,0,
+		&m_context.submit_semaphore));
 }
 
-auto dazai_engine::renderer::render() -> void
+auto dazai_engine::renderer::render() -> bool
 {
+	//ACQUIRE SWAPCHAIN IMAGE
+	uint32_t image_idx;
+	VKCHECK( vkAcquireNextImageKHR(m_context.device,m_context.swap_chain
+		,0,m_context.acquire_semaphore,0,&image_idx));
+	//allocate command buffer
+	VkCommandBuffer cmd;
+	VkCommandBufferAllocateInfo alloc_info{};
+	alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	alloc_info.commandBufferCount = 1;
+	alloc_info.commandPool = m_context.command_pool;
+	vkAllocateCommandBuffers(m_context.device,&alloc_info, &cmd);
+	VkCommandBufferBeginInfo begin_info{};
+	begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	VKCHECK( vkBeginCommandBuffer(cmd, &begin_info));
+	//RENDERING COMMANDS
+	{
+		VkClearColorValue clear_color = { 1,1,0,1 };
+		VkImageSubresourceRange range{};
+		range.layerCount = 1;
+		range.levelCount = 1;
+		range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		vkCmdClearColorImage(cmd,m_context.sc_images[image_idx],
+			VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+			&clear_color,1,&range);
+	}
+	VKCHECK(vkEndCommandBuffer(cmd));
+	//SUMBIT
+	VkSubmitInfo submit_info{};
+	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submit_info.commandBufferCount = 1;
+	submit_info.pCommandBuffers = &cmd;
+	submit_info.waitSemaphoreCount = 1;
+	submit_info.pWaitSemaphores = &m_context.acquire_semaphore;
+	submit_info.signalSemaphoreCount = 1;
+	submit_info.pSignalSemaphores = &m_context.submit_semaphore;
+	//assign wait stage mask for submit request
+	VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	submit_info.pWaitDstStageMask = &wait_stage;
+	vkQueueSubmit(m_context.graphics_queue,1,&submit_info, 0);
+	//PRESENT
+	VkPresentInfoKHR present_info{};
+	present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	present_info.pSwapchains = &m_context.swap_chain;
+	present_info.swapchainCount = 1;
+	present_info.pImageIndices = &image_idx;
+	present_info.pWaitSemaphores = &m_context.submit_semaphore;
+	present_info.waitSemaphoreCount = 1;
+	VKCHECK(vkQueuePresentKHR(m_context.graphics_queue, &present_info));
 
+	//FREE COMMAND BUFFER
+	vkFreeCommandBuffers(m_context.device,
+		m_context.command_pool, 1, &cmd);
+
+	return true;
 }
 
 
