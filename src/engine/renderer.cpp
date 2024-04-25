@@ -8,7 +8,7 @@
 #include <vulkan/vulkan_win32.h>
 #include <vector>
 
-dazai_engine::renderer::renderer(GLFWwindow* window):
+dazai_engine::renderer::renderer(glfw_window* window):
 	m_window(window)
 {
 	init();
@@ -83,7 +83,7 @@ auto dazai_engine::renderer::init() -> void
 	//create vulkan surface
 	VkWin32SurfaceCreateInfoKHR surface_info{};
 	surface_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-	surface_info.hwnd = glfwGetWin32Window(m_window);
+	surface_info.hwnd = glfwGetWin32Window(m_window->window);
 	surface_info.hinstance = GetModuleHandle(nullptr);
 	VKCHECK(vkCreateWin32SurfaceKHR(m_context.instance, &surface_info, 0, &m_context.surface));
 	//select physical device
@@ -190,6 +190,64 @@ auto dazai_engine::renderer::init() -> void
 	//now assign swap chain images
 	VKCHECK(vkGetSwapchainImagesKHR(m_context.device, m_context.swap_chain,
 		&m_context.sc_image_count, m_context.sc_images.data()));
+	//SWAP CHAIN IMAGE VIEWS
+	VkImageViewCreateInfo iv_info{};
+	iv_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	iv_info.format = m_context.surface_format.format;
+	iv_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	iv_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	iv_info.subresourceRange.layerCount = 1;
+	iv_info.subresourceRange.levelCount = 1;
+	m_context.sc_image_views.resize(m_context.sc_image_count);
+	for (size_t i = 0; i < m_context.sc_image_count; i++)
+	{
+		iv_info.image = m_context.sc_images[i];
+		VKCHECK (vkCreateImageView(m_context.device, &iv_info,
+			0, &m_context.sc_image_views[i]));
+	}
+
+	//RENDER PASS
+	VkRenderPassCreateInfo rp_info{};
+	VkAttachmentDescription attachment{};
+	attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	attachment.format = m_context.surface_format.format;
+	//subpass description
+	VkAttachmentReference color_attachment{};
+	color_attachment.attachment = 0;
+	color_attachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	VkSubpassDescription subpass_desc{};
+	subpass_desc.colorAttachmentCount = 1;
+	subpass_desc.pColorAttachments = &color_attachment;
+	VkAttachmentDescription attachments[]
+	{
+		attachment
+	};
+	rp_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	rp_info.attachmentCount = 1;
+	rp_info.pAttachments = attachments;
+	rp_info.subpassCount = ARRAYSIZE(attachments);
+	rp_info.pSubpasses = &subpass_desc;
+	VKCHECK (vkCreateRenderPass(m_context.device, &rp_info ,
+		0, &m_context.render_pass));
+	//FRAMEBUFFER
+	VkFramebufferCreateInfo fb_info{};
+	fb_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	fb_info.renderPass = m_context.render_pass;
+	fb_info.layers = 1;
+	fb_info.attachmentCount = 1;
+	fb_info.width = m_window->width;
+	fb_info.height = m_window->height;
+	m_context.frame_buffers.resize(m_context.sc_image_count);
+	for (size_t i = 0; i < m_context.sc_image_count; i++)
+	{
+		fb_info.pAttachments = &m_context.sc_image_views[i];
+		VKCHECK( vkCreateFramebuffer(m_context.device, &fb_info,
+			0, &m_context.frame_buffers[i]));
+	}
 	//COMMAND POOL
 	VkCommandPoolCreateInfo pool_info{};
 	pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -203,6 +261,10 @@ auto dazai_engine::renderer::init() -> void
 		&m_context.acquire_semaphore));
 	VKCHECK( vkCreateSemaphore(m_context.device,&semaphore_info,0,
 		&m_context.submit_semaphore));
+	//FENCES
+	VkFenceCreateInfo fence_info{};
+	fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	VKCHECK(vkCreateFence(m_context.device,&fence_info,0,&m_context.submit_queue_fence));
 }
 
 auto dazai_engine::renderer::render() -> bool
@@ -222,18 +284,26 @@ auto dazai_engine::renderer::render() -> bool
 	begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	VKCHECK( vkBeginCommandBuffer(cmd, &begin_info));
+	VkClearValue clear_value{};
+	clear_value.color = { 1,1,0,1 };
+	//renderpass begin
+	VkRenderPassBeginInfo rp_begin_info{};
+	rp_begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	rp_begin_info.renderPass = m_context.render_pass;
+	VkExtent2D screen_size = {m_window->width,m_window->height};
+	rp_begin_info.renderArea.extent = screen_size;
+	rp_begin_info.framebuffer = m_context.frame_buffers[image_idx];
+	rp_begin_info.pClearValues = &clear_value;
+	rp_begin_info.clearValueCount = 1;
+	vkCmdBeginRenderPass(cmd, &rp_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 	//RENDERING COMMANDS
 	{
-		VkClearColorValue clear_color = { 1,1,0,1 };
-		VkImageSubresourceRange range{};
-		range.layerCount = 1;
-		range.levelCount = 1;
-		range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		vkCmdClearColorImage(cmd,m_context.sc_images[image_idx],
-			VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-			&clear_color,1,&range);
+		
 	}
+	vkCmdEndRenderPass(cmd);
 	VKCHECK(vkEndCommandBuffer(cmd));
+	//RESET SUBMIT FENCE FIRST
+	VKCHECK(vkResetFences(m_context.device,1, &m_context.submit_queue_fence));
 	//SUMBIT
 	VkSubmitInfo submit_info{};
 	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -246,7 +316,9 @@ auto dazai_engine::renderer::render() -> bool
 	//assign wait stage mask for submit request
 	VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	submit_info.pWaitDstStageMask = &wait_stage;
-	vkQueueSubmit(m_context.graphics_queue,1,&submit_info, 0);
+	vkQueueSubmit(m_context.graphics_queue,1,&submit_info, m_context.submit_queue_fence);
+	//wait for fence
+	VKCHECK(vkWaitForFences(m_context.device,1,&m_context.submit_queue_fence, VK_TRUE, UINT64_MAX));
 	//PRESENT
 	VkPresentInfoKHR present_info{};
 	present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
