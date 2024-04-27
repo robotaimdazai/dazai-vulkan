@@ -9,7 +9,19 @@ if (POLICY CMP0141)
   set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<IF:$<AND:$<C_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:MSVC>>,$<$<CONFIG:Debug,RelWithDebInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>>")
 endif()
 
+set(DEVELOPMENT_BUILD true) # set accordingly
+
 project ("Dazai Vulkan")
+
+if(DEVELOPMENT_BUILD)
+	set(RESOURCES "${CMAKE_CURRENT_SOURCE_DIR}/resources/")
+else()
+	set(RESOURCES "resources/")
+endif()
+
+
+add_definitions(-DRESOURCES="${RESOURCES}")
+
 
 include_directories("vendor/include")
 link_directories("vendor/lib")

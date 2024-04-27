@@ -25,6 +25,10 @@ namespace dazai_engine
 		VkRenderPass render_pass;
 		//framebuffers
 		std::vector<VkFramebuffer> frame_buffers;
+		//pipeline
+		VkPipeline pipeline;
+		//pipeline layout
+		VkPipelineLayout pipeline_layout;
 		//command pool
 		VkCommandPool command_pool;
 		//semaphores

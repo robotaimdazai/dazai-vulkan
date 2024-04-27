@@ -1,12 +1,12 @@
 #include "renderer.h"
 #include "glfw_window.h"
-#include "logger.h"
 #define VK_USE_PLATFORM_WIN32_KHR
 #define GLFW_INCLUDE_VULKAN
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 #include <vulkan/vulkan_win32.h>
 #include <vector>
+#include "resources.h"
 
 dazai_engine::renderer::renderer(glfw_window* window):
 	m_window(window)
@@ -248,6 +248,140 @@ auto dazai_engine::renderer::init() -> void
 		VKCHECK( vkCreateFramebuffer(m_context.device, &fb_info,
 			0, &m_context.frame_buffers[i]));
 	}
+	//####################################################
+	//################### PIEPLEINES ######################
+	// ###################################################
+	//vertex input
+	VkPipelineVertexInputStateCreateInfo vi_info{};
+	vi_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	vi_info.vertexAttributeDescriptionCount = 0;
+	vi_info.vertexBindingDescriptionCount = 0;
+	//input assembly
+	VkPipelineInputAssemblyStateCreateInfo input_assembly{};
+	input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	input_assembly.primitiveRestartEnable = VK_FALSE;
+
+	//color attachments
+	VkPipelineColorBlendAttachmentState c_attachments{};
+	c_attachments.blendEnable = VK_FALSE; // to enable alpha blending
+	c_attachments.colorWriteMask = 
+		VK_COLOR_COMPONENT_R_BIT |
+		VK_COLOR_COMPONENT_G_BIT |
+		VK_COLOR_COMPONENT_B_BIT |
+		VK_COLOR_COMPONENT_A_BIT;
+
+	//color blend state
+	VkPipelineColorBlendStateCreateInfo cb_info{};
+	cb_info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	cb_info.pAttachments = &c_attachments;
+	cb_info.attachmentCount = 1;
+	//SHADER STAGE
+	VkShaderModule v_module, f_module;
+	//vertex shader info
+	uint32_t v_size_bytes;
+	//TODO: abstract shaders and refactor
+	char* v_code = resources::
+		read_raw_file("shaders/default.vert.spv", &v_size_bytes);
+	VkShaderModuleCreateInfo vs_info{};
+	vs_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	vs_info.pCode = (uint32_t*)v_code;
+	vs_info.codeSize = v_size_bytes;
+	VKCHECK( vkCreateShaderModule(m_context.device,&vs_info,0,&v_module));
+	delete v_code;
+	//fragment shader info
+	uint32_t f_size_bytes;
+	char* f_code = resources::
+		read_raw_file("shaders/default.frag.spv", &f_size_bytes);
+	VkShaderModuleCreateInfo fs_info{};
+	fs_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	fs_info.pCode = (uint32_t*)f_code;
+	fs_info.codeSize = f_size_bytes;
+	VKCHECK( vkCreateShaderModule(m_context.device,&fs_info,0,&f_module));
+	delete f_code;
+	//vertex stage
+	VkPipelineShaderStageCreateInfo v_stage{};
+	v_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	v_stage.pName = "main"; // main fn in shader
+	v_stage.stage = VK_SHADER_STAGE_VERTEX_BIT;
+	v_stage.module = v_module;
+	//fragment stage
+	VkPipelineShaderStageCreateInfo f_stage{};
+	f_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	f_stage.pName = "main"; // main fn in shader
+	f_stage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	f_stage.module = f_module;
+	VkPipelineShaderStageCreateInfo shader_stages[]{
+		v_stage,
+		f_stage
+	};
+	
+	//viewport
+	VkViewport viewport{};
+	viewport.x = 0.0f;
+	viewport.y = 0.0f;
+	viewport.width = (float)m_window->width;
+	viewport.height = (float)m_window->height;
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	//scissor
+	VkRect2D scissor{};
+	scissor.offset = { 0,0 };
+	scissor.extent = { m_window->width,m_window->height };
+	//dynamic state for viewports 
+	VkDynamicState dynamic_states[]{
+		VK_DYNAMIC_STATE_VIEWPORT,
+		VK_DYNAMIC_STATE_SCISSOR
+	};
+	VkPipelineDynamicStateCreateInfo dynamic_state{};
+	dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	dynamic_state.dynamicStateCount = ARRAYSIZE(dynamic_states);
+	dynamic_state.pDynamicStates = dynamic_states;
+	//viewport state
+	VkPipelineViewportStateCreateInfo viewport_state{};
+	viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewport_state.viewportCount = 1;
+	viewport_state.scissorCount = 1;
+	viewport_state.pViewports = &viewport;
+	viewport_state.pScissors = &scissor;
+
+	//rasterization stage
+	VkPipelineRasterizationStateCreateInfo rasterization_state{};
+	rasterization_state.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	rasterization_state.frontFace = VK_FRONT_FACE_CLOCKWISE;
+	rasterization_state.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterization_state.polygonMode = VK_POLYGON_MODE_FILL;
+	rasterization_state.lineWidth = 1.0f;
+	rasterization_state.depthClampEnable = VK_FALSE;
+	rasterization_state.depthBiasClamp = VK_FALSE;
+	rasterization_state.rasterizerDiscardEnable = VK_FALSE;
+	//multi sampling
+	VkPipelineMultisampleStateCreateInfo msa_info{};
+	msa_info.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	msa_info.sampleShadingEnable = VK_FALSE;
+	msa_info.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	//layouts for uniforms
+	VkPipelineLayoutCreateInfo layout_info{};
+	layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	VKCHECK(vkCreatePipelineLayout(m_context.device,&layout_info,
+		0,&m_context.pipeline_layout));
+	//main pipeline config
+	VkGraphicsPipelineCreateInfo p_info{};
+	p_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	p_info.pColorBlendState = &cb_info;
+	p_info.pVertexInputState = &vi_info;
+	p_info.pStages = shader_stages;
+	p_info.stageCount = ARRAYSIZE(shader_stages);
+	p_info.renderPass = m_context.render_pass;
+	p_info.pViewportState = &viewport_state;
+	p_info.pInputAssemblyState = &input_assembly;
+	p_info.pRasterizationState = &rasterization_state;
+	p_info.pMultisampleState = &msa_info;
+	p_info.layout = m_context.pipeline_layout;
+	vkCreateGraphicsPipelines(m_context.device,0,
+		1,&p_info,0,&m_context.pipeline );
+
+	//########################################################
 	//COMMAND POOL
 	VkCommandPoolCreateInfo pool_info{};
 	pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
