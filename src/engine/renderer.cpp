@@ -432,7 +432,17 @@ auto dazai_engine::renderer::render() -> bool
 	vkCmdBeginRenderPass(cmd, &rp_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 	//RENDERING COMMANDS
 	{
-		
+		VkRect2D scissor{};
+		scissor.extent = { m_window->width,m_window->height };
+		VkViewport viewport{};
+		viewport.width = m_window->width;
+		viewport.height = m_window->height;
+		viewport.maxDepth = 1.0f;
+		vkCmdSetScissor(cmd,0,1,&scissor);
+		vkCmdSetViewport(cmd, 0, 1, &viewport);
+		vkCmdBindPipeline(cmd,
+			VK_PIPELINE_BIND_POINT_GRAPHICS, m_context.pipeline);
+		vkCmdDraw(cmd, 3, 1, 0, 0);
 	}
 	vkCmdEndRenderPass(cmd);
 	VKCHECK(vkEndCommandBuffer(cmd));
