@@ -1,8 +1,8 @@
 #pragma once
 #include "glfw_window.h"
-#include <vulkan/vulkan.h>
 #include <optional>
 #include <vector>
+#include "vk_types.h"
 namespace dazai_engine
 {
 	struct vk_context
@@ -39,6 +39,10 @@ namespace dazai_engine
 		//queue family indices
 		std::optional<uint32_t> graphic_family_queue_index;
 		VkQueue graphics_queue;
+
+		//temporary
+		//TODO: needs to be abstracted
+		image image;
 	};
 
 	class renderer
@@ -46,7 +50,7 @@ namespace dazai_engine
 	public:
 		renderer(glfw_window* window);
 		~renderer();
-		auto init() -> void;
+		auto init() -> bool;
 		auto render() -> bool;
 
 	private:

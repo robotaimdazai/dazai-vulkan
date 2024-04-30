@@ -7,6 +7,7 @@
 #include <vulkan/vulkan_win32.h>
 #include <vector>
 #include "resources.h"
+#include "logger.h"
 
 dazai_engine::renderer::renderer(glfw_window* window):
 	m_window(window)
@@ -21,7 +22,7 @@ dazai_engine::renderer::~renderer()
 	vkDestroyDevice(m_context.device, nullptr);
 }
 
-auto dazai_engine::renderer::init() -> void
+auto dazai_engine::renderer::init() -> bool
 {
 	//app info
 	VkApplicationInfo app_info{};
@@ -116,7 +117,7 @@ auto dazai_engine::renderer::init() -> void
 	if (!m_context.graphic_family_queue_index.has_value())
 	{
 		LOG_ERROR("Graphic queue family failed");
-		return;
+		return false;
 	}
 	//CREATE LOGICAL DEVICE
 	//first we need to configure queue family we going to use in logical device
@@ -398,7 +399,52 @@ auto dazai_engine::renderer::init() -> void
 	//FENCES
 	VkFenceCreateInfo fence_info{};
 	fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-	VKCHECK(vkCreateFence(m_context.device,&fence_info,0,&m_context.submit_queue_fence));
+	VKCHECK(vkCreateFence(m_context.device,&fence_info,0,
+		&m_context.submit_queue_fence));
+
+	// load image
+	{
+		DDSFile* data = resources::load_dds_file("textures/ball.dds");
+		//TODO:Abstract the image loading
+		VkImageCreateInfo image_info{};
+		image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		image_info.imageType = VK_IMAGE_TYPE_2D;
+		image_info.mipLevels = 1;
+		image_info.arrayLayers = 1;
+		image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+		image_info.extent = { data->header.Width,data->header.Height,1 };
+		image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+		image_info.usage =
+			VK_IMAGE_USAGE_TRANSFER_DST_BIT | // image will be used for transferring data from cpu-gpu
+			VK_IMAGE_USAGE_SAMPLED_BIT; // image will be used for sampling in frag shader
+		//image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		VKCHECK(vkCreateImage(m_context.device, &image_info, 0,
+			&m_context.image.vk_image));
+
+		VkMemoryRequirements mem_req{};
+		vkGetImageMemoryRequirements(m_context.device, m_context.image.vk_image, &mem_req);
+		VkPhysicalDeviceMemoryProperties mem_prop{};
+		vkGetPhysicalDeviceMemoryProperties(m_context.physical_device, &mem_prop);
+		VkMemoryAllocateInfo alloc_info{};
+		alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		alloc_info.allocationSize = data->header.Width * data->header.Height * 4;//4 = rgba
+		for (size_t i = 0; i < mem_prop.memoryTypeCount; i++)
+		{
+			if (mem_req.memoryTypeBits & (1 << i) &&
+				(mem_prop.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+				== VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+			{
+				alloc_info.memoryTypeIndex = i;
+			}
+		}
+
+		VKCHECK(vkAllocateMemory(m_context.device, &alloc_info, 0,
+			&m_context.image.memory));
+		VKCHECK(vkBindImageMemory(m_context.device,
+			m_context.image.vk_image, m_context.image.memory, 0));
+
+	}
+	return true;
 }
 
 auto dazai_engine::renderer::render() -> bool
