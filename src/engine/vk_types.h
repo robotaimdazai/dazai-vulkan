@@ -7,5 +7,13 @@ namespace dazai_engine
 	{
 		VkImage vk_image;
 		VkDeviceMemory memory;
+		VkImageView view;
+	};
+
+	struct buffer
+	{
+		VkBuffer vk_buffer;
+		VkDeviceMemory memory;
+		void* data;
 	};
 }

@@ -8,6 +8,7 @@
 #include <vector>
 #include "resources.h"
 #include "logger.h"
+#include "defines.h"
 
 dazai_engine::renderer::renderer(glfw_window* window):
 	m_window(window)
@@ -361,9 +362,27 @@ auto dazai_engine::renderer::init() -> bool
 	msa_info.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
 	msa_info.sampleShadingEnable = VK_FALSE;
 	msa_info.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+	//DESCRIPTOR SET
+	//binding
+	{
+		VkDescriptorSetLayoutBinding binding = {};
+		binding.binding = 0;
+		binding.descriptorCount = 1;
+		binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		VkDescriptorSetLayoutCreateInfo layout_info{};
+		layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		layout_info.bindingCount = 1;
+		layout_info.pBindings = &binding;
+		vkCreateDescriptorSetLayout(m_context.device, &layout_info, 0,
+			&m_context.set_layout);
+	}
 	//layouts for uniforms
 	VkPipelineLayoutCreateInfo layout_info{};
 	layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	layout_info.setLayoutCount = 1;
+	layout_info.pSetLayouts = &m_context.set_layout;
 	VKCHECK(vkCreatePipelineLayout(m_context.device,&layout_info,
 		0,&m_context.pipeline_layout));
 	//main pipeline config
@@ -381,6 +400,8 @@ auto dazai_engine::renderer::init() -> bool
 	p_info.layout = m_context.pipeline_layout;
 	vkCreateGraphicsPipelines(m_context.device,0,
 		1,&p_info,0,&m_context.pipeline );
+	vkDestroyShaderModule(m_context.device, v_module, 0);
+	vkDestroyShaderModule(m_context.device, f_module, 0);
 
 	//########################################################
 	//COMMAND POOL
@@ -397,14 +418,54 @@ auto dazai_engine::renderer::init() -> bool
 	VKCHECK( vkCreateSemaphore(m_context.device,&semaphore_info,0,
 		&m_context.submit_semaphore));
 	//FENCES
-	VkFenceCreateInfo fence_info{};
-	fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-	VKCHECK(vkCreateFence(m_context.device,&fence_info,0,
+	VkFenceCreateInfo f_info = fence_info(VK_FENCE_CREATE_SIGNALED_BIT);
+	VKCHECK(vkCreateFence(m_context.device,&f_info,0,
 		&m_context.submit_queue_fence));
+
+	//STAGING BUFFER
+	VkBufferCreateInfo buffer_info{};
+	buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+	buffer_info.size = MB(10);
+	VKCHECK (vkCreateBuffer(m_context.device, &buffer_info, 0,
+		&m_context.staging_buffer.vk_buffer));
+
+	{
+		VkMemoryRequirements mem_req{};
+		vkGetBufferMemoryRequirements(m_context.device, m_context.staging_buffer.vk_buffer,
+			&mem_req);
+		VkPhysicalDeviceMemoryProperties mem_prop{};
+		vkGetPhysicalDeviceMemoryProperties(m_context.physical_device,
+			&mem_prop);
+		VkMemoryAllocateInfo alloc_info{};
+		alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		alloc_info.allocationSize = MB(10);
+		for (size_t i = 0; i < mem_prop.memoryTypeCount; i++)
+		{
+			if (mem_req.memoryTypeBits & (1 << i) &&
+				(mem_prop.memoryTypes[i].propertyFlags & 
+					VK_MEMORY_PROPERTY_HOST_COHERENT_BIT|
+					VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+				== 
+				(VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+			{
+				alloc_info.memoryTypeIndex = i;
+			}
+		}
+		VKCHECK(vkAllocateMemory(m_context.device, &alloc_info, 0,
+			&m_context.staging_buffer.memory));
+		VKCHECK( vkMapMemory(m_context.device,m_context.staging_buffer.memory,0,MB(10),
+			0,&m_context.staging_buffer.data));
+		VKCHECK(vkBindBufferMemory(m_context.device,m_context.staging_buffer.vk_buffer,
+			m_context.staging_buffer.memory,0));
+	}
+
 
 	// load image
 	{
 		DDSFile* data = resources::load_dds_file("textures/ball.dds");
+		uint32_t texture_size = data->header.Width * data->header.Height * 4;//4 = rgba
+		memcpy(m_context.staging_buffer.data,&data->dataBegin,texture_size);
 		//TODO:Abstract the image loading
 		VkImageCreateInfo image_info{};
 		image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -427,7 +488,7 @@ auto dazai_engine::renderer::init() -> bool
 		vkGetPhysicalDeviceMemoryProperties(m_context.physical_device, &mem_prop);
 		VkMemoryAllocateInfo alloc_info{};
 		alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-		alloc_info.allocationSize = data->header.Width * data->header.Height * 4;//4 = rgba
+		alloc_info.allocationSize = texture_size;
 		for (size_t i = 0; i < mem_prop.memoryTypeCount; i++)
 		{
 			if (mem_req.memoryTypeBits & (1 << i) &&
@@ -443,7 +504,122 @@ auto dazai_engine::renderer::init() -> bool
 		VKCHECK(vkBindImageMemory(m_context.device,
 			m_context.image.vk_image, m_context.image.memory, 0));
 
+		VkCommandBuffer cmd;
+		VkCommandBufferAllocateInfo cmd_alloc = cmd_alloc_info(m_context.command_pool);
+		VKCHECK( vkAllocateCommandBuffers(m_context.device,
+			&cmd_alloc,&cmd));
+		VkCommandBufferBeginInfo begin_info = cmd_begin_info();
+		vkBeginCommandBuffer(cmd, &begin_info);
+
+		VkImageSubresourceRange range{};
+		range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		range.levelCount = 1;
+		range.layerCount = 1;
+		//transition layout to transfer optimal
+		VkImageMemoryBarrier image_barrier{};
+		image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		image_barrier.image = m_context.image.vk_image;
+
+		image_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		image_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		image_barrier.srcAccessMask = 0;
+		image_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		image_barrier.subresourceRange = range;
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+			VK_PIPELINE_STAGE_TRANSFER_BIT,
+		0, 0, 0, 0,
+			0, 1, &image_barrier);
+		
+		VkBufferImageCopy copy_region{};
+		copy_region.imageExtent = { data->header.Width, data->header.Height,1 };
+		copy_region.imageSubresource.layerCount = 1;
+		copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		vkCmdCopyBufferToImage(cmd,m_context.staging_buffer.vk_buffer,
+			m_context.image.vk_image,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&copy_region);
+
+		image_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		image_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		image_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		image_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+			0, 0, 0, 0,
+			0, 1, &image_barrier);
+
+		vkEndCommandBuffer(cmd);
+
+		VkFence upload_fence; 
+		VkFenceCreateInfo upload_fence_info = fence_info();
+		VKCHECK(vkCreateFence(m_context.device, &upload_fence_info,
+			0,&upload_fence));
+
+		VkSubmitInfo sub_info = submit_info(&cmd);
+		vkQueueSubmit(m_context.graphics_queue, 1, &sub_info, upload_fence);
+		VKCHECK( vkWaitForFences(m_context.device,1,&upload_fence,
+			true,UINT64_MAX));
 	}
+	//image view
+	{
+		VkImageViewCreateInfo view_info{};
+		view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		view_info.image = m_context.image.vk_image;
+		view_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+		view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		view_info.subresourceRange.layerCount = 1;
+		view_info.subresourceRange.levelCount = 1;
+		view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+
+		VKCHECK( vkCreateImageView(m_context.device, &view_info,
+			0, &m_context.image.view));
+	}
+	//create sampler
+	{
+		VkSamplerCreateInfo sampler_info{};
+		sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+		sampler_info.minFilter = VK_FILTER_NEAREST;
+		sampler_info.magFilter = VK_FILTER_NEAREST;
+
+		VKCHECK( vkCreateSampler(m_context.device, &sampler_info, 
+			0, &m_context.sampler));
+	}
+	//descriptor pool
+	{
+		VkDescriptorPoolSize pool_size{};
+		pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		pool_size.descriptorCount = 1;
+
+		VkDescriptorPoolCreateInfo pool_info{};
+		pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		pool_info.maxSets = 1;
+		pool_info.poolSizeCount = 1;
+		pool_info.pPoolSizes = &pool_size;
+		vkCreateDescriptorPool(m_context.device, &pool_info,
+			0, &m_context.descriptor_pool);
+	}
+	//create descriptor set
+	{
+		VkDescriptorSetAllocateInfo alloc_info{};
+		alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		alloc_info.pSetLayouts = &m_context.set_layout;
+		alloc_info.descriptorSetCount = 1;
+		alloc_info.descriptorPool = m_context.descriptor_pool;
+		vkAllocateDescriptorSets(m_context.device,&alloc_info,&m_context.descriptor_set);
+	}
+	//update descriptor set
+	VkDescriptorImageInfo image_info{};
+	image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	image_info.imageView = m_context.image.view;
+	image_info.sampler = m_context.sampler;
+	VkWriteDescriptorSet write{};
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.dstSet = m_context.descriptor_set;
+	write.pImageInfo = &image_info;
+	write.dstBinding = 0;
+	write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	write.descriptorCount = 1;
+	vkUpdateDescriptorSets(m_context.device,1,&write,0,0);
 	return true;
 }
 
@@ -455,14 +631,9 @@ auto dazai_engine::renderer::render() -> bool
 		,0,m_context.acquire_semaphore,0,&image_idx));
 	//allocate command buffer
 	VkCommandBuffer cmd;
-	VkCommandBufferAllocateInfo alloc_info{};
-	alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-	alloc_info.commandBufferCount = 1;
-	alloc_info.commandPool = m_context.command_pool;
-	vkAllocateCommandBuffers(m_context.device,&alloc_info, &cmd);
-	VkCommandBufferBeginInfo begin_info{};
-	begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	VkCommandBufferAllocateInfo alloc_info = cmd_alloc_info(m_context.command_pool);
+	VKCHECK(vkAllocateCommandBuffers(m_context.device,&alloc_info, &cmd));
+	VkCommandBufferBeginInfo begin_info = cmd_begin_info();
 	VKCHECK( vkBeginCommandBuffer(cmd, &begin_info));
 	VkClearValue clear_value{};
 	clear_value.color = { 1,1,0,1 };
@@ -484,11 +655,17 @@ auto dazai_engine::renderer::render() -> bool
 		viewport.width = m_window->width;
 		viewport.height = m_window->height;
 		viewport.maxDepth = 1.0f;
-		vkCmdSetScissor(cmd,0,1,&scissor);
 		vkCmdSetViewport(cmd, 0, 1, &viewport);
+		vkCmdSetScissor(cmd,0,1,&scissor);
+
+		vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,
+			m_context.pipeline_layout,
+			0,1, &m_context.descriptor_set 
+			,0,0);
+
 		vkCmdBindPipeline(cmd,
 			VK_PIPELINE_BIND_POINT_GRAPHICS, m_context.pipeline);
-		vkCmdDraw(cmd, 3, 1, 0, 0);
+		vkCmdDraw(cmd, 6, 1, 0, 0);
 	}
 	vkCmdEndRenderPass(cmd);
 	VKCHECK(vkEndCommandBuffer(cmd));
@@ -524,6 +701,45 @@ auto dazai_engine::renderer::render() -> bool
 		m_context.command_pool, 1, &cmd);
 
 	return true;
+}
+
+//###################	PRIVATE HELPERS	#########################
+
+auto dazai_engine::renderer::cmd_begin_info() -> VkCommandBufferBeginInfo
+{
+	VkCommandBufferBeginInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	return info;
+}
+
+auto dazai_engine::renderer::cmd_alloc_info(VkCommandPool pool) -> VkCommandBufferAllocateInfo
+{
+	VkCommandBufferAllocateInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	info.commandBufferCount = 1;
+	info.commandPool = pool;
+	info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	return info;
+}
+
+auto dazai_engine::renderer::fence_info(VkFenceCreateFlags flags) -> VkFenceCreateInfo
+{
+	VkFenceCreateInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	info.flags = flags;
+	return info;
+}
+
+auto dazai_engine::renderer::submit_info(VkCommandBuffer* cmd, uint32_t cmd_count) -> VkSubmitInfo
+{
+	VkSubmitInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	info.commandBufferCount = cmd_count;
+	info.pCommandBuffers = cmd;
+
+	return info;
 }
 
 

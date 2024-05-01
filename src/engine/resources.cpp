@@ -29,7 +29,7 @@ auto dazai_engine::resources::read_raw_file(const char* filename, uint32_t* leng
 
 auto dazai_engine::resources::load_dds_file(const char* filename)-> DDSFile*
 {
-	DDSFile* result = nullptr;
+	DDSFile* result = new DDSFile;
 	result = (DDSFile*)read_raw_file(filename);
 	return result;
 }

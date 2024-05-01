@@ -39,10 +39,16 @@ namespace dazai_engine
 		//queue family indices
 		std::optional<uint32_t> graphic_family_queue_index;
 		VkQueue graphics_queue;
-
+		//staging buffer
+		buffer staging_buffer;
+		//descriptor pool
+		VkSampler sampler;
+		VkDescriptorPool descriptor_pool;
 		//temporary
 		//TODO: needs to be abstracted
 		image image;
+		VkDescriptorSetLayout set_layout;
+		VkDescriptorSet descriptor_set;
 	};
 
 	class renderer
@@ -52,8 +58,11 @@ namespace dazai_engine
 		~renderer();
 		auto init() -> bool;
 		auto render() -> bool;
-
 	private:
+		auto cmd_begin_info() -> VkCommandBufferBeginInfo;
+		auto cmd_alloc_info(VkCommandPool pool) -> VkCommandBufferAllocateInfo;
+		auto fence_info(VkFenceCreateFlags flags = 0) -> VkFenceCreateInfo;
+		auto submit_info(VkCommandBuffer* cmd, uint32_t cmd_count = 1) -> VkSubmitInfo;
 		glfw_window* m_window;
 		vk_context m_context;
 	};
