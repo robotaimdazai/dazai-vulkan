@@ -14,6 +14,7 @@ namespace dazai_engine
 	{
 		VkBuffer vk_buffer;
 		VkDeviceMemory memory;
+		uint32_t size;
 		void* data;
 	};
 }

@@ -8,7 +8,6 @@
 #include <vector>
 #include "resources.h"
 #include "logger.h"
-#include "defines.h"
 
 dazai_engine::renderer::renderer(glfw_window* window):
 	m_window(window)
@@ -82,7 +81,7 @@ auto dazai_engine::renderer::init() -> bool
 	{
 		LOG_ERROR("DEBUG MESSENGER FUNCTION PTR NOT FOUND");
 	}
-	//create vulkan surface
+	//crete vulkan surface
 	VkWin32SurfaceCreateInfoKHR surface_info{};
 	surface_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
 	surface_info.hwnd = glfwGetWin32Window(m_window->window);
@@ -423,87 +422,23 @@ auto dazai_engine::renderer::init() -> bool
 		&m_context.submit_queue_fence));
 
 	//STAGING BUFFER
-	VkBufferCreateInfo buffer_info{};
-	buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-	buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-	buffer_info.size = MB(10);
-	VKCHECK (vkCreateBuffer(m_context.device, &buffer_info, 0,
-		&m_context.staging_buffer.vk_buffer));
-
-	{
-		VkMemoryRequirements mem_req{};
-		vkGetBufferMemoryRequirements(m_context.device, m_context.staging_buffer.vk_buffer,
-			&mem_req);
-		VkPhysicalDeviceMemoryProperties mem_prop{};
-		vkGetPhysicalDeviceMemoryProperties(m_context.physical_device,
-			&mem_prop);
-		VkMemoryAllocateInfo alloc_info{};
-		alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-		alloc_info.allocationSize = MB(10);
-		for (size_t i = 0; i < mem_prop.memoryTypeCount; i++)
-		{
-			if (mem_req.memoryTypeBits & (1 << i) &&
-				(mem_prop.memoryTypes[i].propertyFlags & 
-					VK_MEMORY_PROPERTY_HOST_COHERENT_BIT|
-					VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
-				== 
-				(VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
-			{
-				alloc_info.memoryTypeIndex = i;
-			}
-		}
-		VKCHECK(vkAllocateMemory(m_context.device, &alloc_info, 0,
-			&m_context.staging_buffer.memory));
-		VKCHECK( vkMapMemory(m_context.device,m_context.staging_buffer.memory,0,MB(10),
-			0,&m_context.staging_buffer.data));
-		VKCHECK(vkBindBufferMemory(m_context.device,m_context.staging_buffer.vk_buffer,
-			m_context.staging_buffer.memory,0));
-	}
-
+	m_context.staging_buffer = alloc_buffer(
+		m_context.device,
+		m_context.physical_device,
+		MB(10),
+		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+		);
 
 	// load image
 	{
 		DDSFile* data = resources::load_dds_file("textures/ball.dds");
 		uint32_t texture_size = data->header.Width * data->header.Height * 4;//4 = rgba
-		memcpy(m_context.staging_buffer.data,&data->dataBegin,texture_size);
-		//TODO:Abstract the image loading
-		VkImageCreateInfo image_info{};
-		image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-		image_info.imageType = VK_IMAGE_TYPE_2D;
-		image_info.mipLevels = 1;
-		image_info.arrayLayers = 1;
-		image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
-		image_info.extent = { data->header.Width,data->header.Height,1 };
-		image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-		image_info.usage =
-			VK_IMAGE_USAGE_TRANSFER_DST_BIT | // image will be used for transferring data from cpu-gpu
-			VK_IMAGE_USAGE_SAMPLED_BIT; // image will be used for sampling in frag shader
-		//image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		VKCHECK(vkCreateImage(m_context.device, &image_info, 0,
-			&m_context.image.vk_image));
-
-		VkMemoryRequirements mem_req{};
-		vkGetImageMemoryRequirements(m_context.device, m_context.image.vk_image, &mem_req);
-		VkPhysicalDeviceMemoryProperties mem_prop{};
-		vkGetPhysicalDeviceMemoryProperties(m_context.physical_device, &mem_prop);
-		VkMemoryAllocateInfo alloc_info{};
-		alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-		alloc_info.allocationSize = texture_size;
-		for (size_t i = 0; i < mem_prop.memoryTypeCount; i++)
-		{
-			if (mem_req.memoryTypeBits & (1 << i) &&
-				(mem_prop.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-				== VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-			{
-				alloc_info.memoryTypeIndex = i;
-			}
-		}
-
-		VKCHECK(vkAllocateMemory(m_context.device, &alloc_info, 0,
-			&m_context.image.memory));
-		VKCHECK(vkBindImageMemory(m_context.device,
-			m_context.image.vk_image, m_context.image.memory, 0));
-
+		copy_to_buffer(&m_context.staging_buffer,&data->dataBegin,texture_size);
+		
+		//TODO:Abstract` the image loading
+		m_context.image = alloc_image(m_context.device,m_context.physical_device,
+			data->header.Width,data->header.Height,VK_FORMAT_R8G8B8A8_UNORM);
 		VkCommandBuffer cmd;
 		VkCommandBufferAllocateInfo cmd_alloc = cmd_alloc_info(m_context.command_pool);
 		VKCHECK( vkAllocateCommandBuffers(m_context.device,
@@ -732,6 +667,7 @@ auto dazai_engine::renderer::fence_info(VkFenceCreateFlags flags) -> VkFenceCrea
 	return info;
 }
 
+
 auto dazai_engine::renderer::submit_info(VkCommandBuffer* cmd, uint32_t cmd_count) -> VkSubmitInfo
 {
 	VkSubmitInfo info = {};
@@ -742,5 +678,137 @@ auto dazai_engine::renderer::submit_info(VkCommandBuffer* cmd, uint32_t cmd_coun
 	return info;
 }
 
+auto dazai_engine::renderer::alloc_image
+(VkDevice device,
+	VkPhysicalDevice physical_device,
+	uint32_t width,
+	uint32_t height,
+	VkFormat format) -> image
+{
+	image image{};
+	VkImageCreateInfo image_info{};
+	image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	image_info.imageType = VK_IMAGE_TYPE_2D;
+	image_info.mipLevels = 1;
+	image_info.arrayLayers = 1;
+	image_info.format = format;
+	image_info.extent = { width,height,1 };
+	image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+	image_info.usage =
+		VK_IMAGE_USAGE_TRANSFER_DST_BIT | // image will be used for transferring data from cpu-gpu
+		VK_IMAGE_USAGE_SAMPLED_BIT; // image will be used for sampling in frag shader
+	//image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	VKCHECK(vkCreateImage(device, &image_info, 0,
+		&image.vk_image));
+
+	VkMemoryRequirements mem_req{};
+	vkGetImageMemoryRequirements(device, image.vk_image, &mem_req);
+	VkPhysicalDeviceMemoryProperties mem_prop{};
+	vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_prop);
+	VkMemoryAllocateInfo alloc_info{};
+	alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	alloc_info.allocationSize = mem_req.size;
+	alloc_info.memoryTypeIndex = get_memory_type_index(physical_device,mem_req,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	VKCHECK(vkAllocateMemory(device, &alloc_info, 0,
+		&image.memory));
+	VKCHECK(vkBindImageMemory(device,
+		image.vk_image, image.memory, 0));
+
+	return image;
+}
+
+auto dazai_engine::renderer::alloc_buffer(
+	VkDevice device,
+	VkPhysicalDevice physical_device,
+	uint32_t size,
+	VkBufferUsageFlags buffer_usage,
+	VkMemoryPropertyFlags mem_props) -> buffer
+{
+	buffer buffer{};
+	buffer.size = size;
+	VkBufferCreateInfo buffer_info{};
+	buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	buffer_info.usage = buffer_usage;
+	buffer_info.size = size;
+	VKCHECK(vkCreateBuffer(device, &buffer_info, 0,
+		&buffer.vk_buffer));
+
+	
+	VkMemoryRequirements mem_req{};
+	vkGetBufferMemoryRequirements(device, buffer.vk_buffer,
+		&mem_req);
+	VkPhysicalDeviceMemoryProperties mem_prop{};
+	vkGetPhysicalDeviceMemoryProperties(physical_device,
+		&mem_prop);
+	VkMemoryAllocateInfo alloc_info{};
+	alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	alloc_info.allocationSize = buffer.size;
+	alloc_info.memoryTypeIndex = 
+		get_memory_type_index(physical_device,
+		mem_req,
+		mem_props);
+
+	VKCHECK(vkAllocateMemory(device, &alloc_info, 0,
+		&buffer.memory));
+	//only map when we can write to memory from cpu
+	if (mem_props  & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+
+	{
+		VKCHECK(vkMapMemory(device, buffer.memory, 0, MB(10),
+			0, &buffer.data));
+	}
+	VKCHECK(vkBindBufferMemory(device, buffer.vk_buffer,
+		buffer.memory, 0));
+	
+	return buffer;
+}
+
+
+auto dazai_engine::renderer::get_memory_type_index(
+	VkPhysicalDevice physical_device,
+	VkMemoryRequirements mem_reqs,
+	VkMemoryPropertyFlags mem_props) -> uint32_t
+{
+	uint32_t type_index = UINT32_MAX;
+	VkPhysicalDeviceMemoryProperties mem_prop{};
+	vkGetPhysicalDeviceMemoryProperties(physical_device,
+		&mem_prop);
+	VkMemoryAllocateInfo alloc_info{};
+	alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	alloc_info.allocationSize = mem_reqs.size;
+	for (size_t i = 0; i < mem_prop.memoryTypeCount; i++)
+	{
+		if (mem_reqs.memoryTypeBits & (1 << i) &&
+			(mem_prop.memoryTypes[i].propertyFlags &
+				mem_props)
+			==
+			(mem_props))
+		{
+			type_index = i;
+			break;
+		}
+	}
+	if (type_index == UINT32_MAX)
+		LOG_ERROR("Memory index Invalid");
+	return type_index;
+}
+
+auto dazai_engine::renderer::copy_to_buffer(buffer* buffer, void* data, uint32_t size) -> void
+{
+	if (size >= buffer->size)
+	{
+		LOG_ERROR("Buffer size is greater than size");
+		return;
+	}
+	if (buffer->data)
+	{
+		memcpy(buffer->data, data, size);
+	}
+	else
+	{
+		LOG_ERROR("Buffer data is null");
+	}
+}
 
 

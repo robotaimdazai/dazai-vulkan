@@ -59,10 +59,25 @@ namespace dazai_engine
 		auto init() -> bool;
 		auto render() -> bool;
 	private:
+		auto alloc_image
+		(VkDevice device,
+			VkPhysicalDevice physical_device,
+			uint32_t width,
+			uint32_t height,
+			VkFormat format) -> image;
+		auto alloc_buffer(VkDevice device,
+			VkPhysicalDevice physical_device,
+			uint32_t size,
+			VkBufferUsageFlags buffer_usage,
+			VkMemoryPropertyFlags mem_props) -> buffer;
+		auto get_memory_type_index(VkPhysicalDevice device,
+			VkMemoryRequirements mem_reqs,
+			VkMemoryPropertyFlags mem_props) -> uint32_t;
 		auto cmd_begin_info() -> VkCommandBufferBeginInfo;
 		auto cmd_alloc_info(VkCommandPool pool) -> VkCommandBufferAllocateInfo;
 		auto fence_info(VkFenceCreateFlags flags = 0) -> VkFenceCreateInfo;
 		auto submit_info(VkCommandBuffer* cmd, uint32_t cmd_count = 1) -> VkSubmitInfo;
+		auto copy_to_buffer(buffer* buffer, void* data, uint32_t size) -> void;
 		glfw_window* m_window;
 		vk_context m_context;
 	};
