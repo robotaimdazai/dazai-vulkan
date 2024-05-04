@@ -3,13 +3,11 @@
 #include "../engine/shared_structs.h"
 #include <vector>
 
-uint32_t constexpr MAX_ENTITIES = 100;
+uint32_t constexpr MAX_ENTITIES = 500;
 
 struct entity
 {
 	transform transform;
-	float velocity_x;
-	float velocity_y;
 };
 
 struct simulation_state
@@ -25,6 +23,7 @@ public:
 	~simulation();
 	auto create_entity(transform transform) -> entity*;
 	auto update() -> void;
+	auto check_collision(const entity& a, const entity& b) -> bool;
 private:
 
 	simulation_state* m_state;
