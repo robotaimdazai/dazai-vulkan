@@ -24,6 +24,8 @@ dazai_engine::renderer::~renderer()
 
 auto dazai_engine::renderer::init() -> bool
 {
+	//compile shaders first
+
 	//app info
 	VkApplicationInfo app_info{};
 	app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -349,7 +351,7 @@ auto dazai_engine::renderer::init() -> bool
 	//rasterization stage
 	VkPipelineRasterizationStateCreateInfo rasterization_state{};
 	rasterization_state.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-	rasterization_state.frontFace = VK_FRONT_FACE_CLOCKWISE;
+	rasterization_state.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterization_state.cullMode = VK_CULL_MODE_BACK_BIT;
 	rasterization_state.polygonMode = VK_POLYGON_MODE_FILL;
 	rasterization_state.lineWidth = 1.0f;
@@ -365,15 +367,16 @@ auto dazai_engine::renderer::init() -> bool
 	//DESCRIPTOR SET
 	//binding
 	{
-		VkDescriptorSetLayoutBinding binding = {};
-		binding.binding = 0;
-		binding.descriptorCount = 1;
-		binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		
+		VkDescriptorSetLayoutBinding bindings[] = {
+			layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,VK_SHADER_STAGE_VERTEX_BIT,1,0),
+			layout_binding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,VK_SHADER_STAGE_VERTEX_BIT,1,1),
+			layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,VK_SHADER_STAGE_FRAGMENT_BIT,1,2),
+		};
 		VkDescriptorSetLayoutCreateInfo layout_info{};
 		layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		layout_info.bindingCount = 1;
-		layout_info.pBindings = &binding;
+		layout_info.bindingCount = ARRAYSIZE(bindings);
+		layout_info.pBindings = bindings;
 		vkCreateDescriptorSetLayout(m_context.device, &layout_info, 0,
 			&m_context.set_layout);
 	}
@@ -432,7 +435,7 @@ auto dazai_engine::renderer::init() -> bool
 
 	// load image
 	{
-		DDSFile* data = resources::load_dds_file("textures/ball.dds");
+		DDSFile* data = resources::load_dds_file("textures/water.dds");
 		uint32_t texture_size = data->header.Width * data->header.Height * 4;//4 = rgba
 		copy_to_buffer(&m_context.staging_buffer,&data->dataBegin,texture_size);
 		
@@ -519,17 +522,56 @@ auto dazai_engine::renderer::init() -> bool
 		VKCHECK( vkCreateSampler(m_context.device, &sampler_info, 
 			0, &m_context.sampler));
 	}
+
+	//create transform storage buffer
+	{
+		m_context.transform_storage_buffer = alloc_buffer(m_context.device,
+			m_context.physical_device,
+			sizeof(transform) * MAX_ENTITIES,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+	}
+
+	//create ubo
+	{
+		m_context.global_ubo = alloc_buffer(m_context.device,
+			m_context.physical_device,
+			sizeof(global_data),
+			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+		//copy data to buffer
+		global_data data = { m_window->width, m_window->height };
+		copy_to_buffer(&m_context.global_ubo, &data,sizeof(global_data));
+	}
+	//create ibo
+	m_context.ibo = alloc_buffer
+	(
+		m_context.device,
+		m_context.physical_device,
+		sizeof(uint32_t) * 6,
+		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+	);
+	//copy indices to buffer
+	{
+		uint32_t indices[] = { 0,1,2,2,3,0 };
+		copy_to_buffer(&m_context.ibo,&indices,sizeof(uint32_t) * 6);
+	}
+
 	//descriptor pool
 	{
-		VkDescriptorPoolSize pool_size{};
-		pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		pool_size.descriptorCount = 1;
+		VkDescriptorPoolSize pool_sizes[] = {
+			{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
+			{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},
+			{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1}
+		};
+
 
 		VkDescriptorPoolCreateInfo pool_info{};
 		pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 		pool_info.maxSets = 1;
-		pool_info.poolSizeCount = 1;
-		pool_info.pPoolSizes = &pool_size;
+		pool_info.poolSizeCount = ARRAYSIZE(pool_sizes);
+		pool_info.pPoolSizes = pool_sizes;
 		vkCreateDescriptorPool(m_context.device, &pool_info,
 			0, &m_context.descriptor_pool);
 	}
@@ -542,24 +584,38 @@ auto dazai_engine::renderer::init() -> bool
 		alloc_info.descriptorPool = m_context.descriptor_pool;
 		vkAllocateDescriptorSets(m_context.device,&alloc_info,&m_context.descriptor_set);
 	}
+
+	descriptor_info desc_infos[] = 
+	{
+		descriptor_info(m_context.global_ubo.vk_buffer),
+		descriptor_info(m_context.transform_storage_buffer.vk_buffer),
+		descriptor_info(m_context.sampler,m_context.image.view)
+	};
+
+	VkWriteDescriptorSet writes[] = {
+		write_set(m_context.descriptor_set, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 
+		&desc_infos[0],0,1),
+		write_set(m_context.descriptor_set, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+		&desc_infos[1],1,1),
+		write_set(m_context.descriptor_set, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		&desc_infos[2],2,1)
+	};
 	//update descriptor set
-	VkDescriptorImageInfo image_info{};
-	image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	image_info.imageView = m_context.image.view;
-	image_info.sampler = m_context.sampler;
-	VkWriteDescriptorSet write{};
-	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	write.dstSet = m_context.descriptor_set;
-	write.pImageInfo = &image_info;
-	write.dstBinding = 0;
-	write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	write.descriptorCount = 1;
-	vkUpdateDescriptorSets(m_context.device,1,&write,0,0);
+	vkUpdateDescriptorSets(m_context.device,ARRAYSIZE(writes),
+		writes, 0, 0);
 	return true;
 }
 
-auto dazai_engine::renderer::render() -> bool
+auto dazai_engine::renderer::render(simulation_state* state) -> bool
 {
+	//copy transforms from simulation
+	{
+		copy_to_buffer(&m_context.transform_storage_buffer,
+			&state->entities,
+			sizeof(transform) * state->entity_count);
+	}
+
+
 	//ACQUIRE SWAPCHAIN IMAGE
 	uint32_t image_idx;
 	VKCHECK( vkAcquireNextImageKHR(m_context.device,m_context.swap_chain
@@ -598,9 +654,12 @@ auto dazai_engine::renderer::render() -> bool
 			0,1, &m_context.descriptor_set 
 			,0,0);
 
+		vkCmdBindIndexBuffer(cmd,m_context.ibo.vk_buffer,
+			0,VK_INDEX_TYPE_UINT32);
 		vkCmdBindPipeline(cmd,
 			VK_PIPELINE_BIND_POINT_GRAPHICS, m_context.pipeline);
-		vkCmdDraw(cmd, 6, 1, 0, 0);
+		vkCmdDrawIndexed(cmd,6,state->entity_count,
+			0,0,0);
 	}
 	vkCmdEndRenderPass(cmd);
 	VKCHECK(vkEndCommandBuffer(cmd));
@@ -743,7 +802,7 @@ auto dazai_engine::renderer::alloc_buffer(
 		&mem_prop);
 	VkMemoryAllocateInfo alloc_info{};
 	alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-	alloc_info.allocationSize = buffer.size;
+	alloc_info.allocationSize = mem_req.size;
 	alloc_info.memoryTypeIndex = 
 		get_memory_type_index(physical_device,
 		mem_req,
@@ -755,7 +814,7 @@ auto dazai_engine::renderer::alloc_buffer(
 	if (mem_props  & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
 
 	{
-		VKCHECK(vkMapMemory(device, buffer.memory, 0, MB(10),
+		VKCHECK(vkMapMemory(device, buffer.memory, 0, mem_req.size,
 			0, &buffer.data));
 	}
 	VKCHECK(vkBindBufferMemory(device, buffer.vk_buffer,
@@ -796,7 +855,7 @@ auto dazai_engine::renderer::get_memory_type_index(
 
 auto dazai_engine::renderer::copy_to_buffer(buffer* buffer, void* data, uint32_t size) -> void
 {
-	if (size >= buffer->size)
+	if (size > buffer->size)
 	{
 		LOG_ERROR("Buffer size is greater than size");
 		return;
@@ -810,5 +869,42 @@ auto dazai_engine::renderer::copy_to_buffer(buffer* buffer, void* data, uint32_t
 		LOG_ERROR("Buffer data is null");
 	}
 }
+
+auto dazai_engine::renderer::layout_binding
+(
+	VkDescriptorType type,
+	VkShaderStageFlags shader_stages,
+	uint32_t count,
+	uint32_t binding_number
+) -> VkDescriptorSetLayoutBinding
+{
+	VkDescriptorSetLayoutBinding binding = {};
+	binding.binding = binding_number;
+	binding.descriptorCount = count;
+	binding.descriptorType = type;
+	binding.stageFlags = shader_stages;
+	return binding;
+}
+
+auto dazai_engine::renderer::write_set
+(
+	VkDescriptorSet set,
+	VkDescriptorType type,
+	descriptor_info* desc_info,
+	uint32_t binding_number,
+	uint32_t count
+)->VkWriteDescriptorSet
+{
+	VkWriteDescriptorSet write{};
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.dstSet =set;
+	write.pImageInfo = &desc_info->image_info;
+	write.pBufferInfo = &desc_info->buffer_info;
+	write.dstBinding = binding_number;
+	write.descriptorType = type;
+	write.descriptorCount = count;
+	return write;
+}
+
 
 

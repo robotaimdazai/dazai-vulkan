@@ -3,6 +3,7 @@
 #include <optional>
 #include <vector>
 #include "vk_types.h"
+#include "../simulation/simulation.h"
 namespace dazai_engine
 {
 	struct vk_context
@@ -41,6 +42,10 @@ namespace dazai_engine
 		VkQueue graphics_queue;
 		//staging buffer
 		buffer staging_buffer;
+		//transform storage buffer
+		buffer transform_storage_buffer;
+		buffer global_ubo;
+		buffer ibo;
 		//descriptor pool
 		VkSampler sampler;
 		VkDescriptorPool descriptor_pool;
@@ -57,7 +62,7 @@ namespace dazai_engine
 		renderer(glfw_window* window);
 		~renderer();
 		auto init() -> bool;
-		auto render() -> bool;
+		auto render(simulation_state* state) -> bool;
 	private:
 		auto alloc_image
 		(VkDevice device,
@@ -78,6 +83,22 @@ namespace dazai_engine
 		auto fence_info(VkFenceCreateFlags flags = 0) -> VkFenceCreateInfo;
 		auto submit_info(VkCommandBuffer* cmd, uint32_t cmd_count = 1) -> VkSubmitInfo;
 		auto copy_to_buffer(buffer* buffer, void* data, uint32_t size) -> void;
+		auto layout_binding
+		(
+			VkDescriptorType type,
+			VkShaderStageFlags shader_stages,
+			uint32_t count,
+			uint32_t binding_number
+		) -> VkDescriptorSetLayoutBinding;
+		auto write_set
+		(
+			VkDescriptorSet set,
+			VkDescriptorType type,
+			descriptor_info* desc_info,
+			uint32_t binding_number,
+			uint32_t count
+		) -> VkWriteDescriptorSet;
+
 		glfw_window* m_window;
 		vk_context m_context;
 	};
