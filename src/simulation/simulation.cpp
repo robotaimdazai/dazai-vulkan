@@ -11,6 +11,8 @@ constexpr float GRAVITY = 9.8f; // Example gravity value
 constexpr float DAMPING = 0.99f; // Example damping factor for air resistance
 constexpr float COHESION_DISTANCE = 50.0f; // Example cohesion distance
 constexpr float REPULSION_DISTANCE = 20.0f; // Example repulsion distance
+constexpr float WAVE_AMPLITUDE = 1.0f; // Amplitude of the wave
+constexpr float WAVE_FREQUENCY = 0.03f; // Frequency of the wave
 
 simulation::simulation(simulation_state* state) : m_state(state)
 {
@@ -90,15 +92,20 @@ auto simulation::update() -> void
         m_state->entities[i].transform.x += repulsion_force_x;
         m_state->entities[i].transform.y += repulsion_force_y;
 
-        // Prevent particles from going beyond the screen boundaries
-        if (m_state->entities[i].transform.x < PARTICLE_RADIUS)
-            m_state->entities[i].transform.x = PARTICLE_RADIUS;
-        else if (m_state->entities[i].transform.x > SCREEN_WIDTH - PARTICLE_RADIUS)
-            m_state->entities[i].transform.x = SCREEN_WIDTH - PARTICLE_RADIUS;
+        // Reflective boundary conditions
+        if (m_state->entities[i].transform.x < PARTICLE_RADIUS || m_state->entities[i].transform.x > SCREEN_WIDTH - PARTICLE_RADIUS)
+            m_state->entities[i].transform.x -= 2 * repulsion_force_x; // Reverse the x-component of the repulsion force
+
+        if (m_state->entities[i].transform.y < PARTICLE_RADIUS || m_state->entities[i].transform.y > SCREEN_HEIGHT - PARTICLE_RADIUS)
+            m_state->entities[i].transform.y -= 2 * repulsion_force_y; // Reverse the y-component of the repulsion force
+
+        // Apply wave behavior to the y-coordinate
+        float wave_offset = WAVE_AMPLITUDE * std::sin(WAVE_FREQUENCY * m_state->entities[i].transform.x);
+        m_state->entities[i].transform.y += wave_offset;
 
         if (m_state->entities[i].transform.y < PARTICLE_RADIUS)
             m_state->entities[i].transform.y = PARTICLE_RADIUS;
         else if (m_state->entities[i].transform.y > SCREEN_HEIGHT - PARTICLE_RADIUS)
             m_state->entities[i].transform.y = SCREEN_HEIGHT - PARTICLE_RADIUS;
     }
- }
+}
