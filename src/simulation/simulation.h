@@ -3,7 +3,7 @@
 #include "../engine/shared_structs.h"
 #include <vector>
 
-uint32_t constexpr MAX_ENTITIES = 500;
+uint32_t constexpr MAX_ENTITIES = 1000;
 
 struct entity
 {
