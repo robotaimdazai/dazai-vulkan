@@ -2,7 +2,7 @@
 Another Vulkan Engine in C++
 
 
-https://github.com/robotaimdazai/dazai-vulkan/assets/90259416/9235e925-69c9-43fc-9673-457ebf947e9a
+https://github.com/robotaimdazai/dazai-vulkan/assets/90259416/850be9e3-ee29-4a7d-8eab-e47df5a4a3af
 
 
 # Status
