@@ -18,7 +18,7 @@ auto dazai_engine::engine::update() -> void
 {
 	
 	simulation_state s_state{};
-	simulation simulation(&s_state);
+	simulation simulation(&s_state,m_glfw_window->window);
 
 	while (m_glfw_window->is_running())
 	{

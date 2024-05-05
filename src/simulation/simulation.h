@@ -2,6 +2,7 @@
 #include "../engine/defines.h"
 #include "../engine/shared_structs.h"
 #include <vector>
+#include <GLFW/glfw3.h>
 
 uint32_t constexpr MAX_ENTITIES = 1000;
 
@@ -19,12 +20,12 @@ struct simulation_state
 class simulation
 {
 public:
-	simulation(simulation_state * state);
+	simulation(simulation_state * state, GLFWwindow* window);
 	~simulation();
 	auto create_entity(transform transform) -> entity*;
 	auto update() -> void;
-	auto check_collision(const entity& a, const entity& b) -> bool;
 private:
 
 	simulation_state* m_state;
+	GLFWwindow* m_window;
 };

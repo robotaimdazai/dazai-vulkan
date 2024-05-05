@@ -627,7 +627,7 @@ auto dazai_engine::renderer::render(simulation_state* state) -> bool
 	VkCommandBufferBeginInfo begin_info = cmd_begin_info();
 	VKCHECK( vkBeginCommandBuffer(cmd, &begin_info));
 	VkClearValue clear_value{};
-	clear_value.color = { 1,1,0,1 };
+	clear_value.color = { 253.0 / 255.0, 234.0 / 255.0, 183.0 / 255.0, 1.0 };
 	//renderpass begin
 	VkRenderPassBeginInfo rp_begin_info{};
 	rp_begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
