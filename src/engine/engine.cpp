@@ -1,6 +1,7 @@
 #include "engine.h"
 #include "logger.h"
 #include "../simulation/simulation.h"
+#include "timer.h"
 
 dazai_engine::engine::engine()
 {

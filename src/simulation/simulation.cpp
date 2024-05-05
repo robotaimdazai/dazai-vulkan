@@ -6,14 +6,14 @@
 
 int SCREEN_WIDTH = 360; // Example width
 int SCREEN_HEIGHT = 100; // Example height
-constexpr float PARTICLE_RADIUS = 2.0f; // Example particle radius
-constexpr float WATER_DENSITY = 0.005f; // Example water density
+constexpr float PARTICLE_RADIUS = 0.0f; // Example particle radius
+constexpr float WATER_DENSITY = 0.00f; // Example water density
 constexpr float GRAVITY = 9.8f; // Example gravity value
 constexpr float DAMPING = 0.99f; // Example damping factor for air resistance
-constexpr float COHESION_DISTANCE = 50.0f; // Example cohesion distance
-constexpr float REPULSION_DISTANCE = 15.0f; // Example repulsion distance
-float WAVE_AMPLITUDE = 0.5f; // Amplitude of the wave
-float WAVE_FREQUENCY = 0.03f; // Frequency of the wave
+constexpr float COHESION_DISTANCE = 2.0f; // Example cohesion distance
+constexpr float REPULSION_DISTANCE = 20.0f; // Example repulsion distance
+float WAVE_AMPLITUDE = 0.3f; // Amplitude of the wave
+float WAVE_FREQUENCY = 0.001f; // Frequency of the wave
 
 namespace
 {
@@ -35,8 +35,8 @@ void simulation::handleMouseClick(double xpos, double ypos)
     transform newTransform;
     newTransform.x = static_cast<float>(xpos);
     newTransform.y = static_cast<float>(ypos);
-    newTransform.size_x = 10; // Adjusted size
-    newTransform.size_y = 10; // Adjusted size
+    newTransform.size_x = 30; // Adjusted size
+    newTransform.size_y = 30; // Adjusted size
 
     // Adjust y position to be above the highest particle beneath it
     for (int i = 0; i < m_state->entity_count; ++i)
@@ -68,8 +68,8 @@ simulation::simulation(simulation_state* state, GLFWwindow* window) : m_state(st
         transform entityTransform;
         entityTransform.x = x;
         entityTransform.y = y;
-        entityTransform.size_x = 10; // Adjusted size
-        entityTransform.size_y = 10; // Adjusted size
+        entityTransform.size_x = 30; // Adjusted size
+        entityTransform.size_y = 30; // Adjusted size
 
         // Create an entity with the generated transform
         create_entity(entityTransform);
@@ -109,7 +109,7 @@ auto simulation::update() -> void
     bool spacePressed = isSpacePressed(m_window);
     if (spacePressed)
     {
-        SCREEN_WIDTH = 640;
+        SCREEN_WIDTH = 500;
         SCREEN_HEIGHT = 720;
     }
     // Apply gravity and forces, and update entity positions
@@ -148,7 +148,7 @@ auto simulation::update() -> void
         m_state->entities[i].transform.y += repulsion_force_y;
 
         // Reflective boundary conditions
-        if (m_state->entities[i].transform.x < PARTICLE_RADIUS || m_state->entities[i].transform.x > SCREEN_WIDTH - PARTICLE_RADIUS)
+        if (m_state->entities[i].transform.x < PARTICLE_RADIUS -10 || m_state->entities[i].transform.x > SCREEN_WIDTH - PARTICLE_RADIUS)
             m_state->entities[i].transform.x -= 2 * repulsion_force_x; // Reverse the x-component of the repulsion force
 
         if (m_state->entities[i].transform.y < PARTICLE_RADIUS || m_state->entities[i].transform.y > SCREEN_HEIGHT - PARTICLE_RADIUS)

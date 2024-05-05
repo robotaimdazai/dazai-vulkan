@@ -12,7 +12,7 @@ namespace dazai_engine
 		~glfw_window();
 		auto is_running() -> bool;
 		GLFWwindow* window{ nullptr };
-		const unsigned  int width{ 640 };
+		const unsigned  int width{ 500 };
 		const unsigned  int height{ 720 };
 		
 		
