@@ -7,12 +7,12 @@
 int SCREEN_WIDTH = 360; // Example width
 int SCREEN_HEIGHT = 100; // Example height
 constexpr float PARTICLE_RADIUS = 2.0f; // Example particle radius
-constexpr float WATER_DENSITY = 0.05f; // Example water density
+constexpr float WATER_DENSITY = 0.005f; // Example water density
 constexpr float GRAVITY = 9.8f; // Example gravity value
 constexpr float DAMPING = 0.99f; // Example damping factor for air resistance
 constexpr float COHESION_DISTANCE = 50.0f; // Example cohesion distance
 constexpr float REPULSION_DISTANCE = 15.0f; // Example repulsion distance
-float WAVE_AMPLITUDE = 1.0f; // Amplitude of the wave
+float WAVE_AMPLITUDE = 0.5f; // Amplitude of the wave
 float WAVE_FREQUENCY = 0.03f; // Frequency of the wave
 
 namespace
@@ -30,12 +30,35 @@ bool isSpacePressed(GLFWwindow* window)
     return glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
 }
 
-simulation::simulation(simulation_state* state, GLFWwindow* window) : m_state(state),m_window(window)
+void simulation::handleMouseClick(double xpos, double ypos)
+{
+    transform newTransform;
+    newTransform.x = static_cast<float>(xpos);
+    newTransform.y = static_cast<float>(ypos);
+    newTransform.size_x = 10; // Adjusted size
+    newTransform.size_y = 10; // Adjusted size
+
+    // Adjust y position to be above the highest particle beneath it
+    for (int i = 0; i < m_state->entity_count; ++i)
+    {
+        if (m_state->entities[i].transform.x == newTransform.x)
+        {
+            if (m_state->entities[i].transform.y > newTransform.y)
+            {
+                newTransform.y = m_state->entities[i].transform.y + PARTICLE_RADIUS * 2.0f; // Ensure it's above the highest particle
+            }
+        }
+    }
+
+    create_entity(newTransform);
+}
+
+simulation::simulation(simulation_state* state, GLFWwindow* window) : m_state(state), m_window(window)
 {
     std::uniform_real_distribution<float> width_dist(PARTICLE_RADIUS, SCREEN_WIDTH - PARTICLE_RADIUS);
     std::uniform_real_distribution<float> height_dist(PARTICLE_RADIUS, SCREEN_HEIGHT / 2); // Limit particles to top half of the screen
 
-    for (int i = 0; i < MAX_ENTITIES; ++i)
+    for (int i = 0; i < MAX_ENTITIES / 2; ++i)
     {
         // Generate random coordinates within the top half of the screen
         float x = width_dist(m_random_engine);
@@ -45,12 +68,24 @@ simulation::simulation(simulation_state* state, GLFWwindow* window) : m_state(st
         transform entityTransform;
         entityTransform.x = x;
         entityTransform.y = y;
-        entityTransform.size_x = 10;
-        entityTransform.size_y = 10;
+        entityTransform.size_x = 10; // Adjusted size
+        entityTransform.size_y = 10; // Adjusted size
 
         // Create an entity with the generated transform
         create_entity(entityTransform);
     }
+
+    glfwSetWindowUserPointer(window, this);
+    glfwSetMouseButtonCallback(window, [](GLFWwindow* window, int button, int action, int mods)
+        {
+            if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
+            {
+                double xpos, ypos;
+                glfwGetCursorPos(window, &xpos, &ypos);
+                simulation* sim = static_cast<simulation*>(glfwGetWindowUserPointer(window));
+                sim->handleMouseClick(xpos, ypos);
+            }
+        });
 }
 
 simulation::~simulation() {}
@@ -152,14 +187,14 @@ auto simulation::update() -> void
     if (m_transitionSteps < m_totalTransitionSteps)
     {
         constexpr float changeSpeed = 0.01f / 100.0f; // Speed of transition
-        WAVE_AMPLITUDE += changeSpeed * (m_targetAmplitude - WAVE_AMPLITUDE);
-        WAVE_FREQUENCY += changeSpeed * (m_targetFrequency - WAVE_FREQUENCY);
+        //WAVE_AMPLITUDE += changeSpeed * (m_targetAmplitude - WAVE_AMPLITUDE);
+        //WAVE_FREQUENCY += changeSpeed * (m_targetFrequency - WAVE_FREQUENCY);
         ++m_transitionSteps;
     }
     else
     {
         // Ensure we reach the exact target values at the end of the transition
-        WAVE_AMPLITUDE = m_targetAmplitude;
-        WAVE_FREQUENCY = m_targetFrequency;
+        //WAVE_AMPLITUDE = m_targetAmplitude;
+        //WAVE_FREQUENCY = m_targetFrequency;
     }
 }

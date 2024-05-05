@@ -24,6 +24,11 @@ public:
 	~simulation();
 	auto create_entity(transform transform) -> entity*;
 	auto update() -> void;
+	auto handleMouseClick(double xpos, double ypos) -> void;
+	auto resolveCollisions()->void;
+	auto applyWaveBehavior()->void;
+	auto checkWaveParameterChange()->void;
+	auto adjustWaveParameters()->void;
 private:
 
 	simulation_state* m_state;
