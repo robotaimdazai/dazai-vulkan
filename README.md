@@ -18,3 +18,6 @@ I've decided to pause this project as it needs too much boilerplate code, will r
 - ECS
 - Deferred rendering
 - demo game ??
+
+- # Build
+Run build.bat to create solution files, you will have to change the visual studio version inside script if version missing.
